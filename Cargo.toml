@@ -5,3 +5,8 @@ authors = ["Magnus Bergmark <magnus.bergmark@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+cloudflare = { git = "https://github.com/Mange/cloudflare-rs", branch = "zone-dns-update" }
+structopt = "0.2.14"
+reqwest = "0.9.5"
+regex = "1.1.0"
+dotenv = "0.13.0"
