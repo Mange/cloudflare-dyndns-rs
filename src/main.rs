@@ -280,7 +280,7 @@ fn determine_external_ip_with_verification(options: &Options) -> Result<String, 
     }
 
     match votes.len() {
-        0 => Err(format!("Error: All sources failed. Aborting")),
+        0 => Err("Error: All sources failed. Aborting".to_string()),
         1 => {
             let ip = votes.keys().next().unwrap();
             if options.verbose {
@@ -309,7 +309,7 @@ fn determine_external_ip_with_verification(options: &Options) -> Result<String, 
                     eprintln!("  {}: {}", ip, tally);
                 }
                 eprintln!("Aborting.");
-                Err(format!("Could not determine IP"))
+                Err("Could not determine IP".to_string())
             }
         }
     }
