@@ -5,6 +5,7 @@ use cloudflare::{
 use dotenv::dotenv;
 use regex::Regex;
 use std::collections::HashMap;
+use std::time::Duration;
 use structopt::StructOpt;
 
 const DEFAULT_CLOUDFLARE_API_URL: &str = "https://api.cloudflare.com/client/v4/";
@@ -74,11 +75,22 @@ struct Options {
         raw(default_value = "DEFAULT_CLOUDFLARE_API_URL")
     )]
     base_url: String,
+
+    /// Request timeout for IP services.
+    #[structopt(long = "ip-timeout", value_name = "SECONDS", default_value = "5")]
+    ip_timeout: u16,
 }
 
 fn main() -> Result<(), String> {
     dotenv().ok();
     let options = Options::from_args();
+
+    if options.ip_timeout == 0 {
+        return Err(String::from(
+            "A timeout of 0 seconds would mean no request could ever work.",
+        ));
+    }
+
     let cloudflare =
         Cloudflare::new(&options.api_key, &options.email, &options.base_url).map_err(|err| {
             format!(
@@ -165,6 +177,13 @@ fn update_dns_record(
     .map(|_| ())
 }
 
+fn http_client(options: &Options) -> Result<reqwest::Client, String> {
+    reqwest::ClientBuilder::new()
+        .timeout(Duration::from_secs(options.ip_timeout.into()))
+        .build()
+        .map_err(|error| format!("Failed to construct HTTP client: {}", error))
+}
+
 fn determine_external_ip(options: &Options) -> Result<String, String> {
     if options.verify {
         determine_external_ip_with_verification(options)
@@ -177,6 +196,7 @@ fn determine_external_ip_without_verification(options: &Options) -> Result<Strin
     let matcher: Regex = IPV4_MATCHER
         .parse()
         .expect("Programmer error: Invalid regexp");
+    let client = http_client(options)?;
 
     if !options.verbose {
         eprint!("Retreiving external IP… ");
@@ -187,7 +207,9 @@ fn determine_external_ip_without_verification(options: &Options) -> Result<Strin
             eprint!("{} -> ", url);
         }
 
-        let found_ip = reqwest::get(*url)
+        let found_ip = client
+            .get(*url)
+            .send()
             .and_then(|mut result| result.text())
             .map(|body| extract_ip_from_body(&body, &matcher));
 
@@ -219,6 +241,7 @@ fn determine_external_ip_with_verification(options: &Options) -> Result<String, 
     let matcher: Regex = IPV4_MATCHER
         .parse()
         .expect("Programmer error: Invalid regexp");
+    let client = http_client(options)?;
 
     let mut votes: HashMap<String, u16> = HashMap::new();
 
@@ -237,7 +260,9 @@ fn determine_external_ip_with_verification(options: &Options) -> Result<String, 
             eprint!("{0:>1$} -> ", url, longest_url_length);
         }
 
-        let found_ip = reqwest::get(*url)
+        let found_ip = client
+            .get(*url)
+            .send()
             .and_then(|mut result| result.text())
             .map(|body| extract_ip_from_body(&body, &matcher));
 
