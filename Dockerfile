@@ -9,7 +9,7 @@ COPY ./Cargo.* ./
 RUN cargo build --tests && \
   cargo build --release && \
   rm -r ./src && \
-  rm -f ./target/*/deps/cloudflare-dyndns-rs* ./target/*-musl/*/deps/cloudflare-dyndns-rs* && \
+  rm -f ./target/*/deps/cloudflare_dyndns_rs* ./target/*-musl/*/deps/cloudflare_dyndns_rs* && \
   rm -rf ./target/*/incremental ./target/*-musl/*/incremental
 
 # Actually build this project, making sure tests pass first
