@@ -86,11 +86,11 @@ fn main() -> Result<(), String> {
     let ip = determine_external_ip(&options)?;
 
     if current_record.content == ip {
-        println!("Existing record is already correct. Exiting without changes.");
+        eprintln!("Existing record is already correct. Exiting without changes.");
         Ok(())
     } else {
         if options.verbose {
-            println!(
+            eprintln!(
                 "IP difference: DNS is set to {dns}, while current IP is {current}",
                 dns = current_record.content,
                 current = ip
@@ -98,7 +98,7 @@ fn main() -> Result<(), String> {
         }
 
         if options.dry_run {
-            println!("Would update DNS record to point to {}", ip);
+            eprintln!("Would update DNS record to point to {}", ip);
             Ok(())
         } else {
             update_dns_record(&cloudflare, &zone_id, current_record, ip)
@@ -108,14 +108,14 @@ fn main() -> Result<(), String> {
 
 fn find_zone_id(options: &Options, cloudflare: &Cloudflare) -> Result<String, String> {
     if options.verbose {
-        print!("Resolving Zone ID… ");
+        eprint!("Resolving Zone ID… ");
     }
 
     let zone_id = cloudflare::zones::get_zoneid(cloudflare, &options.zone_name)
         .map_err(|err| format!("Failed to retreive zone ID: {}", format_error(err)))?;
 
     if options.verbose {
-        println!("OK. Found {}", zone_id);
+        eprintln!("OK. Found {}", zone_id);
     }
 
     Ok(zone_id)
@@ -173,7 +173,7 @@ fn determine_external_ip(options: &Options) -> Result<String, String> {
         .unwrap_or(10);
 
     if !options.verbose {
-        print!("Retreiving and validating external IP… ");
+        eprint!("Retreiving and validating external IP… ");
     }
 
     for url in IP_SERVICE_URLS.iter() {
@@ -187,9 +187,9 @@ fn determine_external_ip(options: &Options) -> Result<String, String> {
 
         if options.verbose {
             match &found_ip {
-                Ok(Some(ip)) => println!("{}", ip),
-                Ok(None) => println!("Failed. No IP found in response."),
-                Err(err) => println!("Failed. {}", err),
+                Ok(Some(ip)) => eprintln!("{}", ip),
+                Ok(None) => eprintln!("Failed. No IP found in response."),
+                Err(err) => eprintln!("Failed. {}", err),
             }
         }
 
@@ -203,19 +203,19 @@ fn determine_external_ip(options: &Options) -> Result<String, String> {
         1 => {
             let ip = votes.keys().next().unwrap();
             if options.verbose {
-                println!("All services agree on {}", ip);
+                eprintln!("All services agree on {}", ip);
             } else {
-                println!("Done");
+                eprintln!("Done");
             }
             Ok(ip.clone())
         }
         _ => {
-            println!("Warning: Some services disagree on IP!");
+            eprintln!("Warning: Some services disagree on IP!");
             let total_votes: u16 = votes.iter().map(|(_ip, tally)| *tally).sum();
             let top_vote = votes.iter().max_by_key(|(_ip, tally)| *tally).unwrap();
             // If the top vote got more than 2/3rds of the votes, it's in an absolute majority.
             if *top_vote.1 >= (total_votes * 2 / 3) {
-                println!(
+                eprintln!(
                     "IP {ip} has absolute majority of the votes ({tally} of {total})",
                     ip = top_vote.0,
                     tally = top_vote.1,
@@ -223,11 +223,11 @@ fn determine_external_ip(options: &Options) -> Result<String, String> {
                 );
                 Ok(top_vote.0.clone())
             } else {
-                println!("No IP has absolute majority:");
+                eprintln!("No IP has absolute majority:");
                 for (ip, tally) in votes.iter() {
-                    println!("  {}: {}", ip, tally);
+                    eprintln!("  {}: {}", ip, tally);
                 }
-                println!("Aborting.");
+                eprintln!("Aborting.");
                 Err(format!("Could not determine IP"))
             }
         }
