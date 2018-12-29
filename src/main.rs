@@ -28,10 +28,16 @@ struct Options {
     #[structopt(long = "verbose", short = "v")]
     verbose: bool,
 
-    /// Don't actually perform any changes, just pretend. Recommended to run with --verbose to make
-    /// the process more apparent.
+    /// Don't actually update the DNS record and instead only exit with the IP that would be
+    /// written.
     #[structopt(long = "dry-run", short = "n")]
     dry_run: bool,
+
+    /// Talk to all available IP services and check that an absolute majority of them have the same
+    /// answer before making any changes. Use this if you are extra paranoid and don't want a
+    /// hacked or buggy service to be able to give you the wrong IP back.
+    #[structopt(long = "verify")]
+    verify: bool,
 
     /// The Cloudflare account email.
     #[structopt(
@@ -160,6 +166,56 @@ fn update_dns_record(
 }
 
 fn determine_external_ip(options: &Options) -> Result<String, String> {
+    if options.verify {
+        determine_external_ip_with_verification(options)
+    } else {
+        determine_external_ip_without_verification(options)
+    }
+}
+
+fn determine_external_ip_without_verification(options: &Options) -> Result<String, String> {
+    let matcher: Regex = IPV4_MATCHER
+        .parse()
+        .expect("Programmer error: Invalid regexp");
+
+    if !options.verbose {
+        eprint!("Retreiving external IP… ");
+    }
+
+    for url in IP_SERVICE_URLS.iter() {
+        if options.verbose {
+            eprint!("{} -> ", url);
+        }
+
+        let found_ip = reqwest::get(*url)
+            .and_then(|mut result| result.text())
+            .map(|body| extract_ip_from_body(&body, &matcher));
+
+        match &found_ip {
+            Ok(Some(ip)) => {
+                eprintln!("{}", ip);
+                return Ok(ip.clone());
+            }
+            Ok(None) => {
+                if options.verbose {
+                    eprintln!("Failed. No IP found in response.")
+                }
+            }
+            Err(err) => {
+                if options.verbose {
+                    eprintln!("Failed. {}", err)
+                }
+            }
+        }
+    }
+
+    Err(format!(
+        "None of the {} service(s) replied successfully.",
+        IP_SERVICE_URLS.len()
+    ))
+}
+
+fn determine_external_ip_with_verification(options: &Options) -> Result<String, String> {
     let matcher: Regex = IPV4_MATCHER
         .parse()
         .expect("Programmer error: Invalid regexp");
@@ -178,7 +234,7 @@ fn determine_external_ip(options: &Options) -> Result<String, String> {
 
     for url in IP_SERVICE_URLS.iter() {
         if options.verbose {
-            print!("{0:>1$} -> ", url, longest_url_length);
+            eprint!("{0:>1$} -> ", url, longest_url_length);
         }
 
         let found_ip = reqwest::get(*url)
