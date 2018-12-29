@@ -1,0 +1,8 @@
+# Artifacts
+target
+
+# Development stuff
+build-docker-image.sh
+
+# Sensitive stuff
+.env
