@@ -1,15 +1,19 @@
-use clap::Parser;
-use cloudflare::{
-    zones::dns::{DnsRecord, RecordType},
-    Cloudflare,
-};
+use clap::{Args, Parser};
+use cloudflare::endpoints::dns::{self, DnsContent};
+use cloudflare::endpoints::zone;
+use cloudflare::framework::apiclient::ApiClient;
+use cloudflare::framework::auth::Credentials;
+use cloudflare::framework::response::{ApiErrors, ApiFailure};
+use cloudflare::framework::{Environment, HttpApiClientConfig};
+use cloudflare::{endpoints::dns::DnsRecord, framework::HttpApiClient as CloudflareClient};
 use dotenv::dotenv;
 use regex::Regex;
 use reqwest::blocking::{Client, ClientBuilder};
+use reqwest::Url;
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 use std::time::Duration;
 
-const DEFAULT_CLOUDFLARE_API_URL: &str = "https://api.cloudflare.com/client/v4/";
 const IP_SERVICE_URLS: [&str; 7] = [
     // HTTPS sources
     "https://checkip.amazonaws.com/",
@@ -41,51 +45,84 @@ struct Options {
     #[arg(long = "dry-run", short = 'n')]
     dry_run: bool,
 
-    /// Talk to all available IP services and check that an absolute majority of them have the same
-    /// answer before making any changes. Use this if you are extra paranoid and don't want a
-    /// hacked or buggy service to be able to give you the wrong IP back.
-    #[arg(long = "verify")]
-    verify: bool,
-
-    /// The Cloudflare account email.
+    /// The Cloudflare API token.
     #[arg(
-        long = "email",
-        short = 'e',
-        env = "CLOUDFLARE_API_EMAIL",
-        value_name = "EMAIL"
+        long = "token",
+        short = 't',
+        env = "CLOUDFLARE_API_TOKEN",
+        value_name = "TOKEN",
+        help_heading = "Cloudflare"
     )]
-    email: String,
+    api_token: String,
 
-    /// The Cloudflare API key.
-    #[arg(
-        long = "key",
-        short = 'k',
-        env = "CLOUDFLARE_API_KEY",
-        value_name = "KEY"
-    )]
-    api_key: String,
-
-    /// The name of the zone to update ("example.com")
-    #[arg(env = "CLOUDFLARE_ZONE_NAME", value_name = "NAME")]
-    zone_name: String,
+    #[command(flatten)]
+    zone_options: ZoneOptions,
 
     /// The name of the DNS record to update ("example.com")
     #[arg(env = "CLOUDFLARE_DNS_RECORD", value_name = "RECORD")]
     dns_record: String,
 
-    /// Cloudflare API base URL. Default should work for all but the most specific cases. Note that
-    /// this URL *must* end with a trailing slash.
+    /// Custom Cloudflare API base URL. Will use Cloudflare Production if not specified.
     #[arg(
         long = "cloudflare-api-url",
         env = "CLOUDFLARE_API_URL",
         value_name = "URL",
-        default_value = DEFAULT_CLOUDFLARE_API_URL,
+        help_heading = "Cloudflare"
     )]
-    base_url: String,
+    base_url: Option<Url>,
 
     /// Request timeout for IP services.
-    #[arg(long = "ip-timeout", value_name = "SECONDS", default_value = "5")]
+    #[arg(
+        long = "ip-timeout",
+        value_name = "SECONDS",
+        default_value = "5",
+        help_heading = "IP"
+    )]
     ip_timeout: u16,
+
+    /// Talk to all available IP services and check that an absolute majority of them have the same
+    /// answer before making any changes. Use this if you are extra paranoid and don't want a
+    /// hacked or buggy service to be able to give you the wrong IP back.
+    #[arg(long = "verify", help_heading = "IP")]
+    verify: bool,
+}
+
+#[derive(Args, Debug)]
+#[group(required = true, multiple = true)]
+struct ZoneOptions {
+    /// The name of the zone to update ("6d3cf337c06d898fc4743293fda5ea3a").
+    #[arg(
+        long = "zone-id",
+        env = "CLOUDFLARE_ZONE_ID",
+        value_name = "ID",
+        help_heading = "Cloudflare"
+    )]
+    id: Option<String>,
+
+    /// The name of the zone to update ("example.com"). If no Zone ID is set, then this name is
+    /// used to look up the Zone ID using the API.
+    #[arg(
+        long = "zone-name",
+        env = "CLOUDFLARE_ZONE_NAME",
+        value_name = "NAME",
+        help_heading = "Cloudflare"
+    )]
+    name: Option<String>,
+}
+
+impl Options {
+    fn cloudflare_credentials(&self) -> Credentials {
+        Credentials::UserAuthToken {
+            token: self.api_token.clone(),
+        }
+    }
+
+    fn cloudflare_environment(&self) -> Environment {
+        match &self.base_url {
+            Some(url) => Environment::Custom(url.to_owned()),
+            None => Environment::Production,
+        }
+    }
 }
 
 fn main() -> Result<(), String> {
@@ -98,90 +135,146 @@ fn main() -> Result<(), String> {
         ));
     }
 
-    let cloudflare =
-        Cloudflare::new(&options.api_key, &options.email, &options.base_url).map_err(|err| {
-            format!(
-                "Failed to initialize Cloudflare API client: {}",
-                format_error(err)
-            )
-        })?;
+    let cloudflare = CloudflareClient::new(
+        options.cloudflare_credentials(),
+        HttpApiClientConfig::default(),
+        options.cloudflare_environment(),
+    )
+    .map_err(|err| format!("Failed to initialize Cloudflare API client: {}", err))?;
 
     let zone_id = find_zone_id(&options, &cloudflare)?;
+
     let current_record = fetch_current_dns_record(&cloudflare, &zone_id, &options.dns_record)?;
-    let ip = determine_external_ip(&options)?;
+    let external_ip = determine_external_ip(&options)?;
 
-    if current_record.content == ip {
-        eprintln!("Existing record is already correct. Exiting without changes.");
-        Ok(())
-    } else {
-        if options.verbose {
-            eprintln!(
-                "IP difference: DNS is set to {dns}, while current IP is {current}",
-                dns = current_record.content,
-                current = ip
-            );
-        }
-
-        if options.dry_run {
-            eprintln!("Would update DNS record to point to {}", ip);
+    match current_record.content {
+        DnsContent::A { content: ip } if ip == external_ip => {
+            eprintln!("Existing record is already correct. Exiting without changes.");
             Ok(())
-        } else {
-            update_dns_record(&cloudflare, &zone_id, current_record, ip)
+        }
+        _ => {
+            if options.verbose {
+                eprintln!(
+                    "IP difference: DNS is set to {dns:?}, while current IP is {current}",
+                    dns = current_record.content,
+                    current = external_ip
+                );
+            }
+
+            if options.dry_run {
+                eprintln!("Would update DNS record to point to {}", external_ip);
+                Ok(())
+            } else {
+                update_dns_record(&cloudflare, &zone_id, current_record, external_ip)
+            }
         }
     }
 }
 
-fn find_zone_id(options: &Options, cloudflare: &Cloudflare) -> Result<String, String> {
+fn find_zone_id(options: &Options, cloudflare: &CloudflareClient) -> Result<String, String> {
+    if let Some(id) = &options.zone_options.id {
+        return Ok(id.to_owned());
+    }
+
+    let name = options
+        .zone_options
+        .name
+        .as_ref()
+        .ok_or_else(|| "Neither Zone ID or Zone Name was specified".to_string())?;
+
     if options.verbose {
         eprint!("Resolving Zone ID… ");
     }
 
-    let zone_id = cloudflare::zones::get_zoneid(cloudflare, &options.zone_name)
-        .map_err(|err| format!("Failed to retreive zone ID: {}", format_error(err)))?;
+    let zones = cloudflare
+        .request(&zone::ListZones {
+            params: zone::ListZonesParams {
+                name: Some(name.to_owned()),
+                ..Default::default()
+            },
+        })
+        .map_err(|err| {
+            dbg!(&err);
+            format!(
+                "Failed to retreive zone ID: {}",
+                format_cloudflare_api_failure(err)
+            )
+        })?
+        .result;
+
+    let zone = zones
+        .into_iter()
+        .find(|zone| &zone.name == name)
+        .ok_or_else(|| {
+            format!(
+                "Failed to retrieve zone ID: No ones with name {} found",
+                name
+            )
+        })?;
 
     if options.verbose {
-        eprintln!("OK. Found {}", zone_id);
+        eprintln!("OK. Found {}", zone.id);
     }
 
-    Ok(zone_id)
+    Ok(zone.id)
 }
 
 fn fetch_current_dns_record(
-    cloudflare: &Cloudflare,
+    cloudflare: &CloudflareClient,
     zone_id: &str,
     record_name: &str,
 ) -> Result<DnsRecord, String> {
-    cloudflare::zones::dns::list_dns_of_type(cloudflare, zone_id, RecordType::A)
-        .map_err(|err| format!("Failed to list DNS A records: {}", format_error(err)))
-        .and_then(|list| {
-            list.into_iter()
-                .find(|record| record.name == record_name)
-                .ok_or_else(|| format!("Could not find A record for {}", record_name))
-        })
+    let request = dns::ListDnsRecords {
+        zone_identifier: zone_id,
+        params: dns::ListDnsRecordsParams {
+            name: Some(record_name.to_owned()),
+            ..Default::default()
+        },
+    };
+
+    let records = cloudflare
+        .request(&request)
+        .map_err(|err| {
+            format!(
+                "Failed to list DNS records for zone {}: {}",
+                zone_id,
+                format_cloudflare_api_failure(err)
+            )
+        })?
+        .result;
+
+    records
+        .into_iter()
+        .find(|record| record.name == record_name)
+        .ok_or_else(|| format!("Could not find A record for {}", record_name))
 }
 
 fn update_dns_record(
-    cloudflare: &Cloudflare,
+    cloudflare: &CloudflareClient,
     zone_id: &str,
     current_record: DnsRecord,
-    new_ip: String,
+    new_ip: Ipv4Addr,
 ) -> Result<(), String> {
-    use cloudflare::zones::dns::UpdateDnsRecord;
-
-    cloudflare::zones::dns::update_dns_entry(
-        cloudflare,
-        zone_id,
-        &current_record.id,
-        &UpdateDnsRecord {
-            record_type: current_record.record_type,
-            name: current_record.name.clone(),
-            content: new_ip,
+    let request = dns::UpdateDnsRecord {
+        zone_identifier: zone_id,
+        identifier: &current_record.id,
+        params: dns::UpdateDnsRecordParams {
+            name: &current_record.name,
+            content: DnsContent::A { content: new_ip },
             ttl: None,
             proxied: None,
         },
-    )
-    .map_err(|err| format!("Failed to update DNS record: {}", format_error(err)))
-    .map(|_| ())
+    };
+
+    cloudflare
+        .request(&request)
+        .map_err(|err| {
+            format!(
+                "Failed to update DNS record: {}",
+                format_cloudflare_api_failure(err)
+            )
+        })
+        .map(|_| ())
 }
 
 fn http_client(options: &Options) -> Result<Client, String> {
@@ -191,7 +284,7 @@ fn http_client(options: &Options) -> Result<Client, String> {
         .map_err(|error| format!("Failed to construct HTTP client: {}", error))
 }
 
-fn determine_external_ip(options: &Options) -> Result<String, String> {
+fn determine_external_ip(options: &Options) -> Result<Ipv4Addr, String> {
     if options.verify {
         determine_external_ip_with_verification(options)
     } else {
@@ -199,7 +292,13 @@ fn determine_external_ip(options: &Options) -> Result<String, String> {
     }
 }
 
-fn determine_external_ip_without_verification(options: &Options) -> Result<String, String> {
+fn parse_ip(string: &str) -> Result<Ipv4Addr, String> {
+    string
+        .parse()
+        .map_err(|err| format!("Failed to parse IP address {}: {}", string, err))
+}
+
+fn determine_external_ip_without_verification(options: &Options) -> Result<Ipv4Addr, String> {
     let matcher: Regex = IPV4_MATCHER
         .parse()
         .expect("Programmer error: Invalid regexp");
@@ -223,7 +322,7 @@ fn determine_external_ip_without_verification(options: &Options) -> Result<Strin
         match &found_ip {
             Ok(Some(ip)) => {
                 eprintln!("{}", ip);
-                return Ok(ip.clone());
+                return parse_ip(ip);
             }
             Ok(None) => {
                 if options.verbose {
@@ -244,7 +343,7 @@ fn determine_external_ip_without_verification(options: &Options) -> Result<Strin
     ))
 }
 
-fn determine_external_ip_with_verification(options: &Options) -> Result<String, String> {
+fn determine_external_ip_with_verification(options: &Options) -> Result<Ipv4Addr, String> {
     let matcher: Regex = IPV4_MATCHER
         .parse()
         .expect("Programmer error: Invalid regexp");
@@ -295,7 +394,7 @@ fn determine_external_ip_with_verification(options: &Options) -> Result<String, 
             } else {
                 eprintln!("Done");
             }
-            Ok(ip.clone())
+            parse_ip(ip)
         }
         _ => {
             eprintln!("Warning: Some services disagree on IP!");
@@ -309,7 +408,7 @@ fn determine_external_ip_with_verification(options: &Options) -> Result<String, 
                     tally = top_vote.1,
                     total = votes.len()
                 );
-                Ok(top_vote.0.clone())
+                parse_ip(top_vote.0)
             } else {
                 eprintln!("No IP has absolute majority:");
                 for (ip, tally) in votes.iter() {
@@ -328,16 +427,22 @@ fn extract_ip_from_body(body: &str, matcher: &Regex) -> Option<String> {
         .map(|captures| captures[0].to_string())
 }
 
-fn format_error(error: cloudflare::Error) -> String {
-    use cloudflare::Error;
-
-    match error {
-        Error::NoResultsReturned => "No results returned".into(),
-        Error::InvalidOptions => "Invalid options".into(),
-        Error::NotSuccess => "API request failed".into(),
-        Error::Reqwest(cause) => format!("Network error: {}", cause),
-        Error::Json(cause) => format!("JSON error: {}", cause),
-        Error::Io(cause) => format!("IO error: {}", cause),
-        Error::Url(cause) => format!("URL error: {}", cause),
+fn format_cloudflare_api_failure(failure: ApiFailure) -> String {
+    match failure {
+        ApiFailure::Error(status, errors) => format!(
+            "Status code {status}:\n  {errors}",
+            status = status,
+            errors = format_cloudflare_errors(errors),
+        ),
+        ApiFailure::Invalid(err) => err.to_string(),
     }
+}
+
+fn format_cloudflare_errors(errors: ApiErrors) -> String {
+    errors
+        .errors
+        .iter()
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .collect::<Vec<String>>()
+        .join("\n  ")
 }
