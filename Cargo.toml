@@ -6,7 +6,12 @@ edition = "2018"
 
 [dependencies]
 cloudflare = { git = "https://github.com/Mange/cloudflare-rs", branch = "zone-dns-update" }
-structopt = "0.3.26"
 reqwest = { version = "0.11.18", features = ["blocking"] }
 regex = "1.8.4"
 dotenv = "0.15.0"
+
+[dependencies.clap]
+version = "4.3.3"
+default_features = false
+# Add "derive" + "env", and remove "color"
+features = ["derive", "env", "error-context", "help", "std", "suggestions", "usage"]

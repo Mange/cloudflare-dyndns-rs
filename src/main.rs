@@ -1,3 +1,4 @@
+use clap::Parser;
 use cloudflare::{
     zones::dns::{DnsRecord, RecordType},
     Cloudflare,
@@ -7,7 +8,6 @@ use regex::Regex;
 use reqwest::blocking::{Client, ClientBuilder};
 use std::collections::HashMap;
 use std::time::Duration;
-use structopt::StructOpt;
 
 const DEFAULT_CLOUDFLARE_API_URL: &str = "https://api.cloudflare.com/client/v4/";
 const IP_SERVICE_URLS: [&str; 7] = [
@@ -23,52 +23,59 @@ const IP_SERVICE_URLS: [&str; 7] = [
 ];
 const IPV4_MATCHER: &str = r#"\b\d{1,3}(\.\d{1,3}){3}\b"#;
 
-#[derive(StructOpt)]
+#[derive(Parser, Debug)]
+#[command(
+    author,
+    about,
+    version,
+    next_line_help = true,
+    args_override_self = true
+)]
 struct Options {
     /// Increase log output to show what the application is doing.
-    #[structopt(long = "verbose", short = "v")]
+    #[arg(long = "verbose", short = 'v')]
     verbose: bool,
 
     /// Don't actually update the DNS record and instead only exit with the IP that would be
     /// written.
-    #[structopt(long = "dry-run", short = "n")]
+    #[arg(long = "dry-run", short = 'n')]
     dry_run: bool,
 
     /// Talk to all available IP services and check that an absolute majority of them have the same
     /// answer before making any changes. Use this if you are extra paranoid and don't want a
     /// hacked or buggy service to be able to give you the wrong IP back.
-    #[structopt(long = "verify")]
+    #[arg(long = "verify")]
     verify: bool,
 
     /// The Cloudflare account email.
-    #[structopt(
+    #[arg(
         long = "email",
-        short = "e",
+        short = 'e',
         env = "CLOUDFLARE_API_EMAIL",
         value_name = "EMAIL"
     )]
     email: String,
 
     /// The Cloudflare API key.
-    #[structopt(
+    #[arg(
         long = "key",
-        short = "k",
+        short = 'k',
         env = "CLOUDFLARE_API_KEY",
         value_name = "KEY"
     )]
     api_key: String,
 
     /// The name of the zone to update ("example.com")
-    #[structopt(env = "CLOUDFLARE_ZONE_NAME", value_name = "NAME")]
+    #[arg(env = "CLOUDFLARE_ZONE_NAME", value_name = "NAME")]
     zone_name: String,
 
     /// The name of the DNS record to update ("example.com")
-    #[structopt(env = "CLOUDFLARE_DNS_RECORD", value_name = "RECORD")]
+    #[arg(env = "CLOUDFLARE_DNS_RECORD", value_name = "RECORD")]
     dns_record: String,
 
     /// Cloudflare API base URL. Default should work for all but the most specific cases. Note that
     /// this URL *must* end with a trailing slash.
-    #[structopt(
+    #[arg(
         long = "cloudflare-api-url",
         env = "CLOUDFLARE_API_URL",
         value_name = "URL",
@@ -77,13 +84,13 @@ struct Options {
     base_url: String,
 
     /// Request timeout for IP services.
-    #[structopt(long = "ip-timeout", value_name = "SECONDS", default_value = "5")]
+    #[arg(long = "ip-timeout", value_name = "SECONDS", default_value = "5")]
     ip_timeout: u16,
 }
 
 fn main() -> Result<(), String> {
     dotenv().ok();
-    let options = Options::from_args();
+    let options = Options::parse();
 
     if options.ip_timeout == 0 {
         return Err(String::from(
