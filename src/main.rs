@@ -4,6 +4,7 @@ use cloudflare::{
 };
 use dotenv::dotenv;
 use regex::Regex;
+use reqwest::blocking::{Client, ClientBuilder};
 use std::collections::HashMap;
 use std::time::Duration;
 use structopt::StructOpt;
@@ -72,7 +73,7 @@ struct Options {
         long = "cloudflare-api-url",
         env = "CLOUDFLARE_API_URL",
         value_name = "URL",
-        raw(default_value = "DEFAULT_CLOUDFLARE_API_URL")
+        default_value = DEFAULT_CLOUDFLARE_API_URL,
     )]
     base_url: String,
 
@@ -177,8 +178,8 @@ fn update_dns_record(
     .map(|_| ())
 }
 
-fn http_client(options: &Options) -> Result<reqwest::Client, String> {
-    reqwest::ClientBuilder::new()
+fn http_client(options: &Options) -> Result<Client, String> {
+    ClientBuilder::new()
         .timeout(Duration::from_secs(options.ip_timeout.into()))
         .build()
         .map_err(|error| format!("Failed to construct HTTP client: {}", error))
@@ -210,7 +211,7 @@ fn determine_external_ip_without_verification(options: &Options) -> Result<Strin
         let found_ip = client
             .get(*url)
             .send()
-            .and_then(|mut result| result.text())
+            .and_then(|result| result.text())
             .map(|body| extract_ip_from_body(&body, &matcher));
 
         match &found_ip {
@@ -263,7 +264,7 @@ fn determine_external_ip_with_verification(options: &Options) -> Result<String, 
         let found_ip = client
             .get(*url)
             .send()
-            .and_then(|mut result| result.text())
+            .and_then(|result| result.text())
             .map(|body| extract_ip_from_body(&body, &matcher));
 
         if options.verbose {
@@ -292,7 +293,7 @@ fn determine_external_ip_with_verification(options: &Options) -> Result<String, 
         }
         _ => {
             eprintln!("Warning: Some services disagree on IP!");
-            let total_votes: u16 = votes.iter().map(|(_ip, tally)| *tally).sum();
+            let total_votes: u16 = votes.values().copied().sum();
             let top_vote = votes.iter().max_by_key(|(_ip, tally)| *tally).unwrap();
             // If the top vote got more than 2/3rds of the votes, it's in an absolute majority.
             if *top_vote.1 >= (total_votes * 2 / 3) {
