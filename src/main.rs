@@ -10,7 +10,7 @@ use std::time::Duration;
 use structopt::StructOpt;
 
 const DEFAULT_CLOUDFLARE_API_URL: &str = "https://api.cloudflare.com/client/v4/";
-const IP_SERVICE_URLS: [&str; 8] = [
+const IP_SERVICE_URLS: [&str; 7] = [
     // HTTPS sources
     "https://checkip.amazonaws.com/",
     "https://httpbin.org/ip",
@@ -20,7 +20,6 @@ const IP_SERVICE_URLS: [&str; 8] = [
     // HTTP sources
     "http://checkip.dyndns.com/",
     "http://whatismyip.akamai.com/",
-    "http://xur.io/ip",
 ];
 const IPV4_MATCHER: &str = r#"\b\d{1,3}(\.\d{1,3}){3}\b"#;
 
