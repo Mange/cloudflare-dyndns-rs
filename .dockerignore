@@ -3,6 +3,9 @@ target
 
 # Development stuff
 build-docker-image.sh
+Dockerfile
+.dockerignore
 
 # Sensitive stuff
 .env
+*.env

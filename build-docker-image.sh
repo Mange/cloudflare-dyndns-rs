@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build the latest version of the Docker image
 
+set -e
+
 version=$(
   grep 'version =' Cargo.toml | head -n1 | awk '{ print $3 }' | tr -d '"'
 )
