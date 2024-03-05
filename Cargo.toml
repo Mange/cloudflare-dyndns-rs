@@ -5,13 +5,13 @@ authors = ["Magnus Bergmark <me@mange.dev>"]
 edition = "2018"
 
 [dependencies]
-cloudflare = "0.10.1"
+cloudflare = { version = "0.11.0", features = ["blocking"] }
 dotenv = "0.15.0"
-regex = "1.8.4"
-reqwest = { version = "0.11.18", features = ["blocking"] }
+regex = "1.10.3"
+reqwest = { version = "0.11.24", features = ["blocking"] }
 
 [dependencies.clap]
-version = "4.3.3"
+version = "= 4.4.18" # 4.5 has MSRV at 1.74
 default_features = false
 # Add "derive" + "env", and remove "color"
 features = ["derive", "env", "error-context", "help", "std", "suggestions", "usage"]

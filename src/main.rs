@@ -1,7 +1,6 @@
 use clap::{Args, Parser};
 use cloudflare::endpoints::dns::{self, DnsContent};
 use cloudflare::endpoints::zone;
-use cloudflare::framework::apiclient::ApiClient;
 use cloudflare::framework::auth::Credentials;
 use cloudflare::framework::response::{ApiErrors, ApiFailure};
 use cloudflare::framework::{Environment, HttpApiClientConfig};
@@ -25,7 +24,7 @@ const IP_SERVICE_URLS: [&str; 7] = [
     "http://checkip.dyndns.com/",
     "http://whatismyip.akamai.com/",
 ];
-const IPV4_MATCHER: &str = r#"\b\d{1,3}(\.\d{1,3}){3}\b"#;
+const IPV4_MATCHER: &str = r"\b\d{1,3}(\.\d{1,3}){3}\b";
 
 #[derive(Parser, Debug)]
 #[command(
