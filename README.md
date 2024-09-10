@@ -62,4 +62,4 @@ variables, when provided.
 
 Released under the MIT license. See `LICENSE` file.
 
-Copyright (c) 2018-2023 Magnus Bergmark
+Copyright (c) 2018-2024 Magnus Bergmark
