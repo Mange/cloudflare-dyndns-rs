@@ -5,10 +5,14 @@ authors = ["Magnus Bergmark <me@mange.dev>"]
 edition = "2018"
 
 [dependencies]
-cloudflare = { version = "0.11.0", features = ["blocking"] }
 dotenv = "0.15.0"
 regex = "1.10.3"
 reqwest = { version = "0.12", features = ["blocking"] }
+
+[dependencies.cloudflare]
+git = "https://github.com/cloudflare/cloudflare-rs"
+rev = "f14720e42184ee176a97676e85ef2d2d85bc3aae"
+features = ["blocking"]
 
 [dependencies.clap]
 version = "4.5"
