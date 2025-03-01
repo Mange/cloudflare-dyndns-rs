@@ -10,8 +10,9 @@ regex = "1.10.3"
 reqwest = { version = "0.12", features = ["blocking"] }
 
 [dependencies.cloudflare]
-git = "https://github.com/cloudflare/cloudflare-rs"
-rev = "f14720e42184ee176a97676e85ef2d2d85bc3aae"
+# git = "https://github.com/cloudflare/cloudflare-rs"
+git = "https://github.com/LSilent/cloudflare-rs"
+rev = "b2c6f366ee68a7956fb69dd4f39357b3c184bd15"
 features = ["blocking"]
 
 [dependencies.clap]
