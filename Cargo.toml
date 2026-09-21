@@ -2,21 +2,16 @@
 name = "cloudflare-dyndns-rs"
 version = "0.3.2"
 authors = ["Magnus Bergmark <me@mange.dev>"]
-edition = "2018"
+edition = "2024"
 
 [dependencies]
-dotenv = "0.15.0"
-regex = "1.10.3"
+dotenvy = "0.15"
+regex = "1.13"
 reqwest = { version = "0.12", features = ["blocking"] }
-
-[dependencies.cloudflare]
-# git = "https://github.com/cloudflare/cloudflare-rs"
-git = "https://github.com/LSilent/cloudflare-rs"
-rev = "b2c6f366ee68a7956fb69dd4f39357b3c184bd15"
-features = ["blocking"]
+cloudflare = { version = "0.14", features = ["blocking"] }
 
 [dependencies.clap]
-version = "4.5"
-default_features = false
+version = "4.6"
+default-features = false
 # Add "derive" + "env", and remove "color"
 features = ["derive", "env", "error-context", "help", "std", "suggestions", "usage"]

@@ -1,14 +1,18 @@
 use clap::{Args, Parser};
-use cloudflare::endpoints::dns::{self, DnsContent};
-use cloudflare::endpoints::zone;
+use cloudflare::endpoints::dns::dns::{self, DnsContent};
+use cloudflare::endpoints::zones::zone;
+use cloudflare::framework::Environment;
 use cloudflare::framework::auth::Credentials;
+use cloudflare::framework::client::ClientConfig;
 use cloudflare::framework::response::{ApiErrors, ApiFailure};
-use cloudflare::framework::{Environment, HttpApiClientConfig};
-use cloudflare::{endpoints::dns::DnsRecord, framework::HttpApiClient as CloudflareClient};
-use dotenv::dotenv;
+use cloudflare::{
+    endpoints::dns::dns::DnsRecord,
+    framework::client::blocking_api::HttpApiClient as CloudflareClient,
+};
+use dotenvy::dotenv;
 use regex::Regex;
-use reqwest::blocking::{Client, ClientBuilder};
 use reqwest::Url;
+use reqwest::blocking::{Client, ClientBuilder};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::time::Duration;
@@ -118,7 +122,7 @@ impl Options {
 
     fn cloudflare_environment(&self) -> Environment {
         match &self.base_url {
-            Some(url) => Environment::Custom(url.to_owned()),
+            Some(url) => Environment::Custom(url.to_string()),
             None => Environment::Production,
         }
     }
@@ -136,7 +140,7 @@ fn main() -> Result<(), String> {
 
     let cloudflare = CloudflareClient::new(
         options.cloudflare_credentials(),
-        HttpApiClientConfig::default(),
+        ClientConfig::default(),
         options.cloudflare_environment(),
     )
     .map_err(|err| format!("Failed to initialize Cloudflare API client: {}", err))?;
